@@ -1,0 +1,53 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Vocab Quiz Maker</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+<script type="importmap">
+{
+  "imports": {
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/"
+  }
+}
+</script>
+<style>
+    /* For Firefox */
+    textarea, .overflow-auto {
+        scrollbar-width: thin;
+        scrollbar-color: #94a3b8 #f1f5f9; /* thumb track */
+    }
+
+    /* Custom scrollbar for WebKit browsers */
+    textarea::-webkit-scrollbar,
+    .overflow-auto::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    textarea::-webkit-scrollbar-track,
+    .overflow-auto::-webkit-scrollbar-track {
+        background: #f1f5f9; /* slate-100 */
+        border-radius: 10px;
+    }
+
+    textarea::-webkit-scrollbar-thumb,
+    .overflow-auto::-webkit-scrollbar-thumb {
+        background: #94a3b8; /* slate-400 */
+        border-radius: 10px;
+    }
+
+    textarea::-webkit-scrollbar-thumb:hover,
+    .overflow-auto::-webkit-scrollbar-thumb:hover {
+        background: #64748b; /* slate-500 */
+    }
+</style>
+</head>
+<body class="bg-slate-50 text-slate-800">
+    <div id="root"></div>
+    <script type="module" src="/index.tsx"></script>
+</body>
+</html>

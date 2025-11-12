@@ -1,0 +1,5 @@
+{
+  "name": "Vocab Quiz Maker",
+  "description": "An application to create vocabulary quizzes from a list of words. Paste or upload a CSV/TSV/text list, preview the words, generate multiple-choice, true/false, or fill-in-the-blank quizzes, and export your data.",
+  "requestFramePermissions": []
+}
