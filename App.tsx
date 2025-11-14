@@ -1,83 +1,221 @@
-
-import React, { useState, useRef, useCallback } from 'react';
-import { VocabRow, Quiz, Score, Language, Answer } from './types';
+import React, { useState, useCallback, useEffect } from 'react';
+import { GoogleGenAI, Type } from "@google/genai";
+import { VocabRow, Quiz, Score, Language, Answer, DialogueLine, TargetLanguage, Deck } from './types';
 import { parseTextToVocabRows, download } from './utils/fileUtils';
 import { generateQuiz } from './utils/quizUtils';
-import PreviewTable from './components/PreviewTable';
-import QuizRunner from './components/QuizRunner';
-import { UploadIcon, CreateQuizIcon, LanguageIcon, ParseIcon, QuizIcon, DownloadIcon } from './components/icons';
+import { LanguageIcon, SpinnerIcon, HomeIcon } from './components/icons';
 import { useTranslation } from './utils/translations';
-import QuizTypeSelector from './components/QuizTypeSelector';
 
-type QuizType = 'mcq' | 'tf' | 'fill';
+import LanguageSelectionView from './components/LanguageSelectionView';
+import HomeView from './components/HomeView';
+import DeckView from './components/DeckView';
+import QuizView from './components/QuizView';
+import DialogueView from './components/DialogueView';
+import DeckListView from './components/DeckListView';
+
+
+type View = 'deck-list' | 'language-select' | 'home' | 'deck' | 'quiz' | 'dialogue';
+type QuizType = 'mcq' | 'fill';
+
+const APP_STORAGE_KEY = 'vocabQuizMakerDecks';
 
 const App: React.FC = () => {
-  const [rawText, setRawText] = useState<string>('');
-  const [vocabRows, setVocabRows] = useState<VocabRow[]>([]);
-  const [deckTitle, setDeckTitle] = useState<string>('My Vocab Deck');
+  const [decks, setDecks] = useState<Deck[]>([]);
+  const [currentDeckId, setCurrentDeckId] = useState<string | null>(null);
   const [quiz, setQuiz] = useState<Quiz | null>(null);
   const [score, setScore] = useState<Score>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const [language, setLanguage] = useState<Language>('vi');
-  const [questionCount, setQuestionCount] = useState<number>(10);
-  const [selectedQuizTypes, setSelectedQuizTypes] = useState<Set<QuizType>>(new Set(['mcq']));
+  const [uiLanguage, setUiLanguage] = useState<Language>('en');
+  const [generatedDialogue, setGeneratedDialogue] = useState<DialogueLine[] | null>(null);
+  const [dialogueTitle, setDialogueTitle] = useState<string>('');
+  const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [isAnalyzing, setIsAnalyzing] = useState<boolean>(false);
+  const [currentView, setCurrentView] = useState<View>('deck-list');
+  const [newDeckTargetLanguage, setNewDeckTargetLanguage] = useState<TargetLanguage | null>(null);
+  
+  const t = useTranslation(uiLanguage);
 
-  const t = useTranslation(language);
-
-  const toggleLanguage = () => {
-    setLanguage(prev => prev === 'vi' ? 'en' : 'vi');
-  };
-
-  const handleParseText = useCallback((text: string) => {
-    const parsed = parseTextToVocabRows(text);
-    setVocabRows(parsed);
-    setRawText(text);
-    setQuiz(null);
-    setScore(null);
+  // Load decks from localStorage on initial render
+  useEffect(() => {
+    try {
+      const savedDecks = localStorage.getItem(APP_STORAGE_KEY);
+      if (savedDecks) {
+        setDecks(JSON.parse(savedDecks));
+      }
+    } catch (error) {
+      console.error("Failed to load decks from localStorage", error);
+    }
   }, []);
 
-  const handleFileChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0];
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      handleParseText(String(e.target.result || ''));
-    };
-    reader.readAsText(file);
-    event.target.value = ''; // Reset file input
+  // Save decks to localStorage whenever they change
+  useEffect(() => {
+    try {
+      localStorage.setItem(APP_STORAGE_KEY, JSON.stringify(decks));
+    } catch (error) {
+      console.error("Failed to save decks to localStorage", error);
+    }
+  }, [decks]);
+
+  const currentDeck = decks.find(d => d.id === currentDeckId) || null;
+
+  const toggleLanguage = () => {
+    setUiLanguage(prev => prev === 'vi' ? 'en' : 'vi');
+  };
+  
+  const handleGoToDeckList = () => {
+    setCurrentDeckId(null);
+    setQuiz(null);
+    setScore(null);
+    setGeneratedDialogue(null);
+    setDialogueTitle('');
+    setNewDeckTargetLanguage(null);
+    setCurrentView('deck-list');
   };
 
-  const rowsToCSV = (data: VocabRow[]): string => {
-    const header = ["word", "ipa", "meaning"];
-    const lines = data.map((row) => {
-      return `"${row.word.replace(/"/g, '""')}","${row.ipa.replace(/"/g, '""')}","${row.meaning.replace(/"/g, '""')}"`;
-    });
-    return [header.join(","), ...lines].join("\n");
+  const handleGoToDeck = () => {
+    setScore(null);
+    setCurrentView('deck');
   };
 
+  const handleCreateNew = () => {
+    setNewDeckTargetLanguage(null);
+    setCurrentView('language-select');
+  };
+
+  const handleSelectDeck = (deckId: string) => {
+    setCurrentDeckId(deckId);
+    // Reset any generated content from other decks
+    setQuiz(null);
+    setScore(null);
+    setGeneratedDialogue(null);
+    setDialogueTitle('');
+    setCurrentView('deck');
+  };
+
+  const handleDeleteDeck = (deckId: string) => {
+    setDecks(prevDecks => prevDecks.filter(deck => deck.id !== deckId));
+    if (currentDeckId === deckId) {
+      handleGoToDeckList();
+    }
+  };
+  
+  const handleViewQuiz = () => {
+    setCurrentView('quiz');
+  };
+
+  const handleViewDialogue = () => {
+    setCurrentView('dialogue');
+  };
+
+  const handleSelectTargetLanguage = (lang: TargetLanguage) => {
+    setNewDeckTargetLanguage(lang);
+    setCurrentView('home');
+  };
+
+  const handleParseAndAnalyze = useCallback(async (
+    text: string, 
+    title: string, 
+    ipa: 'us' | 'uk' | 'pinyin', 
+    thinkingMode: boolean,
+    targetLanguage: TargetLanguage
+  ) => {
+    setQuiz(null);
+    setScore(null);
+    
+    const lines = text.trim().split(/\r?\n/).filter(Boolean);
+    if (lines.length === 0) {
+      return;
+    }
+    
+    const isSingleColumn = lines.every(line => !line.includes('\t') && !line.includes(','));
+    let newRows: VocabRow[] = [];
+
+    if (isSingleColumn) {
+      setIsAnalyzing(true);
+      try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+        const uiTargetLanguage = uiLanguage === 'vi' ? 'Vietnamese' : 'English';
+        const wordsList = lines.join(', ');
+
+        let transcriptionType: string;
+        if (targetLanguage === 'zh') {
+            transcriptionType = 'Chinese Pinyin transcription (with tone marks)';
+        } else {
+            transcriptionType = ipa === 'uk' ? 'British English IPA transcription' : 'American English IPA transcription';
+        }
+
+        const prompt = `For the following list of words, provide their ${transcriptionType} and their meaning in ${uiTargetLanguage}. Return the result as a valid JSON array of objects, where each object has the keys "word", "ipa", and "meaning". The words are: ${wordsList}`;
+
+        const responseSchema = {
+          type: Type.ARRAY,
+          items: {
+            type: Type.OBJECT,
+            properties: {
+              word: { type: Type.STRING },
+              ipa: { type: Type.STRING },
+              meaning: { type: Type.STRING },
+            },
+            required: ['word', 'ipa', 'meaning'],
+          },
+        };
+
+        const model = thinkingMode ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+        const config: any = {
+          responseMimeType: "application/json",
+          responseSchema,
+        };
+        if (thinkingMode) {
+          config.thinkingConfig = { thinkingBudget: 32768 };
+        }
+        
+        const response = await ai.models.generateContent({ model, contents: prompt, config });
+        
+        newRows = JSON.parse(response.text);
+
+      } catch (error) {
+        console.error("Error analyzing words with AI:", error);
+        alert(t('errorAnalyzing'));
+      } finally {
+        setIsAnalyzing(false);
+      }
+    } else {
+      newRows = parseTextToVocabRows(text);
+    }
+    
+    if (newRows.length > 0) {
+      const newDeck: Deck = {
+        id: Date.now().toString(),
+        title,
+        rows: newRows,
+        targetLanguage,
+        ipa: ipa,
+      };
+      setDecks(prev => [...prev, newDeck]);
+      setCurrentDeckId(newDeck.id);
+      setCurrentView('deck');
+    }
+
+  }, [uiLanguage, t]);
+  
   const exportCSV = () => {
-    const csv = rowsToCSV(vocabRows);
-    download(`${deckTitle.replace(/\s+/g, '_')}.csv`, csv, 'text/csv');
+    if (!currentDeck) return;
+    const header = ["word", "ipa", "meaning"];
+    const lines = currentDeck.rows.map((row) => `"${row.word.replace(/"/g, '""')}","${row.ipa.replace(/"/g, '""')}","${row.meaning.replace(/"/g, '""')}"`);
+    const csv = [header.join(","), ...lines].join("\n");
+    download(`${currentDeck.title.replace(/\s+/g, '_')}.csv`, csv, 'text/csv');
   };
 
   const exportJSON = () => {
-    const payload = vocabRows.map(({ word, ipa, meaning }) => ({ word, ipa, meaning }));
-    download(`${deckTitle.replace(/\s+/g, '_')}.json`, JSON.stringify(payload, null, 2), 'application/json');
+    if (!currentDeck) return;
+    const payload = currentDeck.rows.map(({ word, ipa, meaning }) => ({ word, ipa, meaning }));
+    download(`${currentDeck.title.replace(/\s+/g, '_')}.json`, JSON.stringify(payload, null, 2), 'application/json');
   };
 
-  const handleCreateQuiz = () => {
-    if (vocabRows.length === 0) {
-      alert(t('alertAddWords'));
-      return;
-    }
-    if (selectedQuizTypes.size === 0) {
-      alert(t('alertSelectQuizType'));
-      return;
-    }
-    const kinds = [...selectedQuizTypes];
-    const newQuiz = generateQuiz(vocabRows, kinds, questionCount);
+  const handleCreateQuiz = (quizTypes: Set<QuizType>, qCount: number) => {
+    if (!currentDeck) return;
+    const newQuiz = generateQuiz(currentDeck.rows, [...quizTypes], qCount);
     setQuiz(newQuiz);
     setScore(null);
+    setCurrentView('quiz');
   };
   
   const handleSubmitAnswers = (answers: Answer[]) => {
@@ -86,28 +224,167 @@ const App: React.FC = () => {
     quiz.forEach((q, i) => {
       const userAnswer = answers[i];
       if (userAnswer === null || userAnswer === undefined) return;
-
-      switch (q.type) {
-        case 'mcq':
-          if (userAnswer === q.answer) correct++;
-          break;
-        case 'tf':
-          if ((userAnswer === true) === q.answer) correct++;
-          break;
-        case 'fill':
-          if (String(userAnswer).trim().toLowerCase() === q.answer.trim().toLowerCase()) correct++;
-          break;
-      }
+      if (q.type === 'mcq' && userAnswer === q.answer) correct++;
+      if (q.type === 'fill' && String(userAnswer).trim().toLowerCase() === q.answer.trim().toLowerCase()) correct++;
     });
     setScore({ correct, total: quiz.length });
   };
+  
+  const handleGenerateDialogue = async (thinkingMode: boolean) => {
+    if (!currentDeck) return;
+    const wordsForContext = currentDeck.rows.filter(row => row.word && row.meaning);
+    if (wordsForContext.length === 0) {
+        alert(t('alertNoMeaningsForAI'));
+        return;
+    }
+    setIsGenerating(true);
+    setGeneratedDialogue(null);
+    setDialogueTitle('');
+    setCurrentView('dialogue');
+    try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY! });
+        const model = thinkingMode ? 'gemini-2.5-pro' : 'gemini-2.5-flash';
+
+        const vocabContext = wordsForContext.map(r => `${r.word} (meaning: ${r.meaning})`).join('; ');
+        const uiTargetLanguage = uiLanguage === 'vi' ? 'Vietnamese' : 'English';
+        
+        const isChinese = currentDeck.targetLanguage === 'zh';
+        
+        const dialogueLanguage = isChinese ? 'Chinese' : 'English';
+        const transcriptionType = isChinese 
+            ? 'Pinyin transcription (with tone marks)' 
+            : (currentDeck.ipa === 'us' ? 'American English IPA transcription' : 'British English IPA transcription');
+        
+        const exampleText = isChinese ? '你好' : 'Hello';
+        const exampleTranscription = isChinese ? 'nǐ hǎo' : '/həˈloʊ/';
+        const exampleMeaning = isChinese ? 'Hello' : (uiLanguage === 'vi' ? 'Xin chào' : 'Greeting');
+        const exampleLine = `{ "character": "A", "text": "${exampleText}", "transcription": "${exampleTranscription}", "meaning": "${exampleMeaning}" }`;
+
+        const prompt = `You are an expert language teacher creating learning materials.
+Task: Create a short, natural dialogue in ${dialogueLanguage} between two speakers (e.g., A and B).
+Vocabulary to include: You MUST use the following ${dialogueLanguage} words in the dialogue: ${vocabContext}.
+Output format: The dialogue must be returned as a single, valid JSON object that adheres to the provided schema. Each line of dialogue must have the ${dialogueLanguage} text, the correct ${transcriptionType}, and a translation into ${uiTargetLanguage}.
+Example of a line: ${exampleLine}
+Do not include any text or explanations outside of the JSON object.`;
+        
+        const dialogueSchemaProperties = {
+            character: { type: Type.STRING, description: "The speaker, e.g., 'A' or 'B'." },
+            text: { type: Type.STRING, description: `The dialogue line in ${dialogueLanguage}.` },
+            transcription: { type: Type.STRING, description: `The ${transcriptionType}.` },
+            meaning: { type: Type.STRING, description: `The translation of the dialogue line into ${uiTargetLanguage}.` },
+        };
+        
+        const responseSchema = {
+            type: Type.OBJECT,
+            properties: {
+                title: { type: Type.STRING, description: `A short, creative title for the dialogue in ${uiTargetLanguage}.` },
+                dialogue: {
+                    type: Type.ARRAY,
+                    items: {
+                        type: Type.OBJECT,
+                        properties: dialogueSchemaProperties,
+                        required: ['character', 'text', 'transcription', 'meaning'],
+                    }
+                }
+            },
+            required: ['title', 'dialogue'],
+        };
+
+        const config: any = { responseMimeType: "application/json", responseSchema };
+        if (thinkingMode) {
+          config.thinkingConfig = { thinkingBudget: 32768 };
+        }
+
+        const response = await ai.models.generateContent({ model, contents: prompt, config });
+        const parsedResponse = JSON.parse(response.text);
+
+        if (parsedResponse.title && parsedResponse.dialogue) {
+            setDialogueTitle(parsedResponse.title);
+            setGeneratedDialogue(parsedResponse.dialogue);
+        } else {
+            throw new Error("Invalid JSON structure from AI.");
+        }
+
+    } catch (error) {
+        console.error("Error generating dialogue:", error);
+        setGeneratedDialogue([]);
+        setDialogueTitle(t('errorGenerating'));
+    } finally {
+        setIsGenerating(false);
+    }
+  };
+
+
+  const renderView = () => {
+    switch(currentView) {
+      case 'deck':
+        return currentDeck ? <DeckView
+          deck={currentDeck}
+          t={t}
+          onCreateQuiz={handleCreateQuiz}
+          onGenerateDialogue={handleGenerateDialogue}
+          onExportCSV={exportCSV}
+          onExportJSON={exportJSON}
+          hasQuiz={!!quiz}
+          hasDialogue={!!generatedDialogue}
+          onViewQuiz={handleViewQuiz}
+          onViewDialogue={handleViewDialogue}
+        /> : null;
+      case 'quiz':
+        return quiz ? <QuizView
+          quiz={quiz}
+          onSubmit={handleSubmitAnswers}
+          score={score}
+          onReset={() => setScore(null)}
+          onBackToDeck={handleGoToDeck}
+          t={t}
+        /> : null;
+      case 'dialogue':
+        return <DialogueView
+          title={dialogueTitle}
+          dialogue={generatedDialogue}
+          isLoading={isGenerating}
+          onBackToDeck={handleGoToDeck}
+          t={t}
+        />;
+      case 'home':
+        return newDeckTargetLanguage ? <HomeView
+          onAnalyze={handleParseAndAnalyze}
+          isAnalyzing={isAnalyzing}
+          t={t}
+          targetLanguage={newDeckTargetLanguage}
+        /> : null;
+      case 'language-select':
+        return <LanguageSelectionView onSelect={handleSelectTargetLanguage} t={t} />;
+      case 'deck-list':
+      default:
+        return <DeckListView
+          decks={decks}
+          onSelectDeck={handleSelectDeck}
+          onDeleteDeck={handleDeleteDeck}
+          onCreateNew={handleCreateNew}
+          t={t}
+        />;
+    }
+  };
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8 max-w-7xl mx-auto font-sans">
-      <header className="flex justify-between items-center mb-6">
-          <div>
-              <h1 className="text-3xl font-bold text-slate-900">{t('appTitle')}</h1>
-              <p className="text-slate-600 mt-1">{t('appSubtitle')}</p>
+    <div className="p-4 sm:p-6 lg:p-8 max-w-screen-xl mx-auto font-sans">
+      <header className="flex justify-between items-center mb-6 pb-4 border-b border-slate-200">
+          <div className="flex items-center gap-4">
+              {currentView !== 'deck-list' && (
+                <button 
+                  onClick={handleGoToDeckList} 
+                  className="p-2 rounded-full text-slate-500 hover:bg-slate-200 hover:text-slate-700 transition-colors"
+                  title={t('backToDeckListTooltip')}
+                >
+                  <HomeIcon className="w-6 h-6" />
+                </button>
+              )}
+              <div>
+                  <h1 className="text-3xl font-bold text-slate-900">{t('appTitle')}</h1>
+                  <p className="text-slate-600 mt-1">{t('appSubtitle')}</p>
+              </div>
           </div>
           <button 
               onClick={toggleLanguage} 
@@ -117,84 +394,9 @@ const App: React.FC = () => {
               <LanguageIcon className="w-6 h-6" />
           </button>
       </header>
-
-      <main className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left Column: Input Card */}
-        <div className="bg-white p-4 sm:p-6 border border-slate-200 rounded-lg shadow-sm">
-          <div className="space-y-4">
-            <div>
-              <label htmlFor="deckTitle" className="block text-sm font-medium text-slate-700 mb-1">{t('deckTitleLabel')}</label>
-              <input id="deckTitle" value={deckTitle} onChange={(e) => setDeckTitle(e.target.value)} className="w-full p-2 border rounded-md bg-white text-slate-900 border-slate-300 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" />
-            </div>
-            <div>
-              <label htmlFor="pasteArea" className="block text-sm font-medium text-slate-700 mb-1">{t('pasteListLabel')}</label>
-              <p className="text-xs text-slate-500 mb-2">{t('pasteListHelper')}</p>
-              <textarea id="pasteArea" value={rawText} onChange={(e) => setRawText(e.target.value)} rows={8} className="w-full p-2 border rounded-md bg-white text-slate-900 border-slate-300 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" placeholder={t('pasteListPlaceholder')} />
-            </div>
-            <div className="flex flex-wrap gap-2 pt-2">
-              <input type="file" accept=".csv,.txt,.tsv" ref={fileInputRef} onChange={handleFileChange} className="hidden" id="file-upload" />
-              <button onClick={() => fileInputRef.current?.click()} className="flex items-center gap-2 px-4 py-2 rounded-md bg-white text-slate-700 border border-slate-300 font-semibold hover:bg-slate-50">
-                <UploadIcon className="w-5 h-5" />
-                {t('uploadFileButton')}
-              </button>
-              <button onClick={() => handleParseText(rawText)} className="flex items-center gap-2 px-4 py-2 rounded-md bg-blue-600 text-white font-semibold hover:bg-blue-700">
-                <ParseIcon className="w-5 h-5" />
-                {t('analyzeButton')}
-              </button>
-            </div>
-             <div className="flex flex-wrap gap-2 border-t border-slate-200 pt-4">
-                <button onClick={exportCSV} disabled={vocabRows.length === 0} className="flex items-center gap-2 px-4 py-2 rounded-md bg-white text-slate-700 border border-slate-300 font-semibold hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">
-                    <DownloadIcon className="w-5 h-5" />
-                    {t('exportCSVButton')}
-                </button>
-                <button onClick={exportJSON} disabled={vocabRows.length === 0} className="flex items-center gap-2 px-4 py-2 rounded-md bg-white text-slate-700 border border-slate-300 font-semibold hover:bg-slate-50 disabled:opacity-50 disabled:cursor-not-allowed">
-                    <DownloadIcon className="w-5 h-5" />
-                    {t('exportJSONButton')}
-                </button>
-              </div>
-          </div>
-        </div>
-        
-        {/* Right Column: Preview Card */}
-        <div className="lg:col-span-1">
-            <PreviewTable rows={vocabRows} t={t} />
-        </div>
+      <main>
+        {renderView()}
       </main>
-
-      {/* Quiz Creation Card */}
-      <div className="mt-6 bg-white p-4 sm:p-6 border border-slate-200 rounded-lg shadow-sm">
-        <div className="space-y-4">
-            <div>
-                <label htmlFor="numQuestions" className="block text-sm font-medium text-slate-700 mb-1">{t('numQuestionsLabel')}</label>
-                <div className="flex items-center gap-2">
-                    <input id="numQuestions" type="number" value={questionCount} onChange={(e) => setQuestionCount(Math.max(1, Math.min(20, Number(e.target.value))))} className="w-24 p-2 border rounded-md bg-white text-slate-900 border-slate-300 placeholder-slate-400 focus:ring-2 focus:ring-blue-500 focus:border-blue-500" min="1" max="20" />
-                    <span className="text-sm text-slate-500">{t('questionCountMax')}</span>
-                </div>
-            </div>
-            <div>
-                <label className="block text-sm font-medium text-slate-700 mb-2">{t('questionTypeLabel')}</label>
-                <QuizTypeSelector selected={selectedQuizTypes} onChange={setSelectedQuizTypes} vocabRowCount={vocabRows.length} t={t} />
-            </div>
-            <button onClick={handleCreateQuiz} className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-md bg-blue-600 text-white font-semibold hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-500 disabled:cursor-not-allowed"
-              disabled={vocabRows.length === 0 || selectedQuizTypes.size === 0}
-            >
-                <CreateQuizIcon className="w-5 h-5" />
-                {t('createQuizButton')}
-            </button>
-        </div>
-      </div>
-
-      <section className="mt-6">
-        {quiz ? (
-          <QuizRunner quiz={quiz} onSubmit={handleSubmitAnswers} score={score} onReset={() => setScore(null)} t={t}/>
-        ) : (
-          <div className="text-center py-10 px-6 bg-white border border-slate-200 rounded-lg shadow-sm">
-            <QuizIcon className="w-12 h-12 mx-auto text-slate-400" />
-            <h3 className="mt-4 text-lg font-semibold text-slate-700">{t('quizPlaceholderTitle')}</h3>
-            <p className="mt-1 text-sm text-slate-500">{t('quizPlaceholderSubtitle')}</p>
-          </div>
-        )}
-      </section>
     </div>
   );
 };

@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect } from 'react';
-import { Quiz, Score, Answer, QuizQuestion, MCQQuestion, TFQuestion } from '../types';
+import { Quiz, Score, Answer, QuizQuestion, MCQQuestion } from '../types';
 import { download } from '../utils/fileUtils';
 import { TranslationKey } from '../utils/translations';
 
@@ -19,8 +19,6 @@ const getAnswerStatus = (question: QuizQuestion, answer: Answer, showResults: bo
   switch (question.type) {
     case 'mcq':
       return answer === question.answer ? 'correct' : 'incorrect';
-    case 'tf':
-      return (answer === true) === question.answer ? 'correct' : 'incorrect';
     case 'fill':
       return (String(answer) || "").trim().toLowerCase() === (question.answer || "").trim().toLowerCase() ? 'correct' : 'incorrect';
     default:
@@ -51,8 +49,6 @@ const QuestionCard: React.FC<{
     let correctAnswerText = '';
     if (question.type === 'mcq' || question.type === 'fill') {
         correctAnswerText = question.answer;
-    } else if (question.type === 'tf') {
-        correctAnswerText = question.answer ? 'True' : 'False';
     }
 
     return (
@@ -83,22 +79,6 @@ const QuestionCard: React.FC<{
               <span className="ml-3 text-slate-700">{option}</span>
             </label>
           ))}
-        </div>
-      )}
-
-      {question.type === 'tf' && (
-        <div className="mt-2">
-          <p className="text-sm text-slate-600 mb-2">{t('tfStatement')}: "{(question as TFQuestion).meaning}"</p>
-          <div className="flex gap-4">
-             <label className={`flex items-center p-2 rounded-md cursor-pointer hover:bg-slate-100 ${userAnswer === true ? 'bg-slate-200' : ''}`}>
-              <input type="radio" name={`q_${index}`} checked={userAnswer === true} onChange={() => onAnswer(index, true)} disabled={status !== 'neutral'} className="form-radio h-4 w-4 text-slate-600" />
-              <span className="ml-3 text-slate-700">True</span>
-            </label>
-            <label className={`flex items-center p-2 rounded-md cursor-pointer hover:bg-slate-100 ${userAnswer === false ? 'bg-slate-200' : ''}`}>
-              <input type="radio" name={`q_${index}`} checked={userAnswer === false} onChange={() => onAnswer(index, false)} disabled={status !== 'neutral'} className="form-radio h-4 w-4 text-slate-600" />
-              <span className="ml-3 text-slate-700">False</span>
-            </label>
-          </div>
         </div>
       )}
 

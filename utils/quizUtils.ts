@@ -1,7 +1,7 @@
 
-import { Quiz, QuizQuestion, VocabRow, MCQQuestion, TFQuestion, FillQuestion } from '../types';
+import { Quiz, QuizQuestion, VocabRow, MCQQuestion, FillQuestion } from '../types';
 
-type QuizType = 'mcq' | 'tf' | 'fill';
+type QuizType = 'mcq' | 'fill';
 
 function generateMCQ(rows: VocabRow[], itemIndex: number, choices: number = 4): MCQQuestion {
   const correctRow = rows[itemIndex];
@@ -22,36 +22,6 @@ function generateMCQ(rows: VocabRow[], itemIndex: number, choices: number = 4): 
     answer: correctMeaning
   };
 }
-
-function generateTF(rows: VocabRow[], itemIndex: number): TFQuestion {
-  const correctRow = rows[itemIndex];
-  const isStatementCorrect = Math.random() > 0.5;
-
-  let meaningToShow: string;
-  let actualAnswer: boolean;
-
-  if (isStatementCorrect) {
-    meaningToShow = correctRow.meaning;
-    actualAnswer = true;
-  } else {
-    const wrongOptions = rows.filter((r, i) => i !== itemIndex && r.meaning && r.meaning !== correctRow.meaning);
-    if (wrongOptions.length > 0) {
-      meaningToShow = wrongOptions[Math.floor(Math.random() * wrongOptions.length)].meaning;
-    } else {
-      // Fallback if no other distinct meanings are available
-      meaningToShow = `Not ${correctRow.meaning}`;
-    }
-    actualAnswer = false;
-  }
-
-  return {
-    type: 'tf',
-    question: correctRow.word,
-    meaning: meaningToShow,
-    answer: actualAnswer
-  };
-}
-
 
 function generateFill(rows: VocabRow[], itemIndex: number): FillQuestion {
   const correctRow = rows[itemIndex];
@@ -74,7 +44,6 @@ export function generateQuiz(rows: VocabRow[], kinds: QuizType[], count: number 
   // Filter out quiz types that don't meet minimum requirements
   const availableKinds = kinds.filter(kind => {
       if (kind === 'mcq' && quizCandidates.length < 4) return false;
-      if (kind === 'tf' && quizCandidates.length < 2) return false;
       return true;
   });
 
@@ -92,8 +61,6 @@ export function generateQuiz(rows: VocabRow[], kinds: QuizType[], count: number 
     switch (randomKind) {
       case 'mcq':
         return generateMCQ(rows, originalIndex);
-      case 'tf':
-        return generateTF(rows, originalIndex);
       case 'fill':
         return generateFill(rows, originalIndex);
       default:

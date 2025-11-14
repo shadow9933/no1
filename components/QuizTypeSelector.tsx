@@ -1,8 +1,9 @@
+
 import React from 'react';
 import { TranslationKey } from '../utils/translations';
 import { MCQIcon, FillIcon } from './icons';
 
-type QuizType = 'mcq' | 'tf' | 'fill';
+type QuizType = 'mcq' | 'fill';
 
 interface QuizTypeSelectorProps {
     selected: Set<QuizType>;
